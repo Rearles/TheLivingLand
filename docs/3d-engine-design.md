@@ -220,34 +220,81 @@ The engine uses **OOP for individual actors** (Player, each Enemy, each Weapon) 
 
 ```typescript
 // engine/GameEngine.ts — the seam between OOP and ECS
+import RAPIER from '@dimforge/rapier3d-compat'
+import { Object3D, PerspectiveCamera } from 'three'
 import { World } from 'miniplex'
 import { particleSystem, audioFadeSystem } from '../ecs/systems'
 import type { Entity } from '../actors/Entity'
+import { tuning as T } from '../tuning'
 
 export class GameEngine {
-  // OOP path: individual, behavior-rich actors
+  // OOP path: individual, behavior-rich actors.
   private actors: Set<Entity> = new Set()
 
-  // ECS path: swarms, particles, transient effects
+  // ECS path: swarms, particles, transient effects.
   private ecsWorld: World<EcsEntity> = new World()
 
+  // Dynamic-body registry — bodies whose THREE mesh transforms must be copied
+  // from Rapier each frame so they render at their simulated position
+  // (e.g. ragdoll bones — see §10.4 — and any future physics-driven projectiles).
+  private dynamicBodies: Map<number, { body: RAPIER.RigidBody; mesh: Object3D }> = new Map()
+
+  // The camera the renderer draws with. Registered by PlayerController.onAttach()
+  // — the engine doesn't construct its own camera.
+  activeCamera!: PerspectiveCamera
+
+  // Fixed-timestep accumulator. Rapier integrates at T.PHYSICS_FIXED_DT (1/60 s)
+  // regardless of the render frame rate, so simulation is frame-rate-independent
+  // (critical for stable ragdolls — see §6.5).
+  private physicsAccumulator = 0
+
   tick(dt: number): void {
-    // 1) Inputs are read by the player controller (an actor)
-    // 2) Actors update their own behavior + position
+    // 1) Input was already latched by the host (Angular DungeonPage) via
+    //    setInputs() / applyMouseDelta() before this tick. The player consumes
+    //    those fields during its own update() in step 2.
+
+    // 2) Actors update their behavior + position. Kinematic bodies (the Player)
+    //    stage their next translation here — the physics step in (4) applies it.
     for (const actor of this.actors) actor.update(dt)
 
-    // 3) ECS systems sweep the swarm components
+    // 3) ECS systems sweep the swarm components.
     particleSystem(this.ecsWorld, dt)
     audioFadeSystem(this.ecsWorld, dt)
 
-    // 4) Physics step (Rapier)
-    this.physics.step(dt)
+    // 4) Step Rapier at a fixed rate using a classic accumulator. Rapier's
+    //    world.step() integrates by world.timestep (= T.PHYSICS_FIXED_DT),
+    //    NOT by the variable dt we pass at the render layer. A per-frame cap
+    //    of T.PHYSICS_MAX_STEPS_PER_FRAME prevents a "spiral of death" if
+    //    the tab is restored from backgrounding.
+    this.physicsAccumulator += dt
+    let steps = 0
+    while (
+      this.physicsAccumulator >= T.PHYSICS_FIXED_DT &&
+      steps < T.PHYSICS_MAX_STEPS_PER_FRAME
+    ) {
+      this.physics.step()
+      this.physicsAccumulator -= T.PHYSICS_FIXED_DT
+      steps++
+    }
+    if (this.physicsAccumulator >= T.PHYSICS_FIXED_DT) {
+      // Hit the substep cap. Drop the rest so we don't accumulate forever.
+      this.physicsAccumulator = 0
+    }
 
-    // 5) Render
-    this.renderer.render(this.scene, this.camera)
+    // 5) Sync dynamic-body transforms (Rapier → THREE) so ragdolls render where
+    //    physics put them, not where they were last spawned.
+    for (const { body, mesh } of this.dynamicBodies.values()) {
+      const t = body.translation()
+      const q = body.rotation()
+      mesh.position.set(t.x, t.y, t.z)
+      mesh.quaternion.set(q.x, q.y, q.z, q.w)
+    }
+
+    // 6) Render with the camera the player registered.
+    this.renderer.render(this.scene, this.activeCamera)
   }
 
-  spawnActor<T extends Entity>(actor: T): T {
+  spawnActor<E extends Entity>(actor: E): E {
     this.actors.add(actor)
     actor.onAttach(this)
     return actor
@@ -265,6 +312,18 @@ export class GameEngine {
       ttl: opts.ttl,
       sprite: opts.sprite,
     })
+  }
+
+  // Register a dynamic body whose THREE mesh should follow the physics
+  // simulation each frame. Called by §10.4's spawnRagdoll() once per bone.
+  // Returns the body handle so the caller can unregister on cleanup.
+  registerDynamicBody(body: RAPIER.RigidBody, mesh: Object3D): number {
+    this.dynamicBodies.set(body.handle, { body, mesh })
+    return body.handle
+  }
+
+  unregisterDynamicBody(bodyHandle: number): void {
+    this.dynamicBodies.delete(bodyHandle)
   }
 }
 ```
@@ -314,14 +373,22 @@ export type EcsEntity = {
 export const createEcsWorld = () => new World<EcsEntity>()
 ```
 
-### 5.4 Where does new code go?
+### 5.4 Three categories: actors, ECS components, services
+
+Engine code lands in one of three categories. Each has a different lifecycle and a different home in the file tree.
+
+- **Actors (OOP)** — `actors/`. One instance per design entity (Player, each Enemy, each Weapon, each Locker, each ragdoll). Owns its own state, has rich behavior, updates itself in the actor loop in §5.1 step 2. Best when instance count is low and each behaves differently.
+- **ECS components** — `ecs/`. Tiny per-row data in a `miniplex` world; mutated by systems that sweep over all entities matching a component query. Best for high-cardinality, uniform-per-tick effects (particles, audio source pool, future projectiles).
+- **Services (singletons)** — created in `GameEngine.init()`, disposed in `GameEngine.dispose()`. Long-lived infrastructure: `PhysicsWorld` (Rapier), `AudioService` (Web Audio), `NavMeshService` (recast), `Scheduler` (one-shot delayed callbacks), `AssetLoader` (glTF + textures). Actors and ECS systems call into them; they own no actors and no components themselves.
+
+The decision when adding something new:
 
 | If the thing has...                                          | It's...                |
 | ------------------------------------------------------------ | ---------------------- |
 | Distinct behavior per instance, AI, complex state            | An **actor (OOP)**     |
 | High instance counts, uniform per-tick math, throwaway       | An **ECS component**   |
 | Both (e.g. an enemy emits particles)                         | Actor owns the spawn; particles live in ECS |
-| Cross-cutting infrastructure (physics, audio, navmesh)       | A **service** (singleton) on `GameEngine` |
+| Long-lived infrastructure (physics, audio, navmesh, assets)  | A **service** on `GameEngine` |
 
 ---
 
@@ -432,13 +499,15 @@ export interface RunTotals {
 }
 ```
 
-### 6.5 Time
+### 6.5 Time — two clocks
 
-Variable timestep with a clamped `dt` to avoid the tunneling problem after a tab is backgrounded:
+Two clocks run inside the engine. They serve different masters.
+
+**Render clock** (variable `dt`). The render loop is driven by `requestAnimationFrame`, so frame intervals vary with the host: 16.7 ms on a 60 Hz display, 6.9 ms on a 144 Hz display, and arbitrarily long after a tab is restored from backgrounding. We clamp `dt` to bound the worst case — if a tab was hidden for 30 seconds, we don't want the engine trying to "catch up" 30 seconds of simulation in one frame.
 
 ```typescript
 // engine/time.ts
-const MAX_DT = 1 / 30          // never advance more than ~33ms in one tick
+const MAX_DT = 1 / 30          // never advance more than ~33 ms in one render tick
 
 export class Clock {
   private last = performance.now() / 1000
@@ -451,7 +520,15 @@ export class Clock {
 }
 ```
 
-Physics uses Rapier's own substep loop internally to remain stable under variable `dt`.
+**Physics clock** (fixed `dt`). Rapier's `world.step()` advances the world by its `integrationParameters.dt` property (set to `T.PHYSICS_FIXED_DT` = 1/60 s); it does NOT consume the render-side `dt`. There is no automatic substepping inside Rapier — if you call `step()` once per render frame at 144 Hz, you'd be running physics at 2.4× real time on that machine and 1× real time on a 60 Hz machine.
+
+To stay frame-rate-independent, we use a classic **accumulator pattern** in `GameEngine.tick()` (§5.1 step 4): every render tick we add the variable `dt` to the accumulator, then step Rapier 1/60 s at a time until the accumulator drains. A per-frame cap of `T.PHYSICS_MAX_STEPS_PER_FRAME` (5 steps = 83 ms of simulation) prevents a "spiral of death" if the host stalls badly — if we hit the cap, we **drop the remainder** rather than try to catch up.
+
+Consequences worth knowing:
+
+- Physics behavior is **deterministic in step count** (good — ragdolls fall the same way regardless of frame rate).
+- Visual representation may lag the simulation by up to one fixed step (~16 ms). At 60 Hz render this is invisible; at higher refresh it can produce mild judder. If we ever observe it in playtests, we'll add render-time **interpolation** between the two most recent physics states in the dynamic-body sync pass.
+- Kinematic bodies (the Player) stage their next translation during the actor update (§5.1 step 2); Rapier applies it on the next physics step. With one render frame where physics happens to step 0 times (because the accumulator hasn't drained yet), the player's queued movement is held until the next step. In practice with a 60 Hz physics rate and ≤144 Hz render, this is below perceptual threshold.
 
 ### 6.6 Determinism policy
 
@@ -788,6 +865,9 @@ export class PlayerController extends Entity {
     this.cct = engine.physics.world.createCharacterController(0.05)
     this.cct.enableSnapToGround(0.2)
     this.cct.setMaxSlopeClimbAngle(50 * Math.PI / 180)
+
+    // Register our camera as the engine's render camera (see §5.1).
+    engine.activeCamera = this.camera
   }
 
   setInputs(input: typeof this.input) { this.input = input }
@@ -2069,6 +2149,11 @@ export const ENEMY_DETECT_DELAY_MS = 250
 
 /* ─────────────  Audio  ───────────── */
 export const AUDIO_MAX_DISTANCE_M = 30
+
+/* ─────────────  Physics timestep (see §6.5)  ───────────── */
+export const PHYSICS_FIXED_DT = 1 / 60               // s — Rapier world.timestep. Fixed for stable ragdolls.
+export const PHYSICS_MAX_STEPS_PER_FRAME = 5         // cap to prevent spiral of death
+//  → max simulated time per render frame = PHYSICS_FIXED_DT * PHYSICS_MAX_STEPS_PER_FRAME ≈ 83 ms
 
 /* ─────────────  Physics groups (bit flags)  ───────────── */
 export const PHYSICS_GROUP_WALL    = 0b0001
