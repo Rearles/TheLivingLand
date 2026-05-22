@@ -2,7 +2,7 @@
 
 > **Living document.** Update this file at the end of each session to reflect decisions made, work completed, and what's next. Individual turn files in `context/` are the historical archive; this file is what Claude Code reads to orient itself at session start.
 
-Last updated: turn-013 (2026-05-22)
+Last updated: turn-014 (2026-05-22)
 
 ---
 
@@ -145,7 +145,7 @@ Releases: merge-and-tag `develop` → `master`.
 - System: macOS Monterey — CLT is **outdated**. Avoid `brew install` for formulas that compile from source. Binary downloads work fine.
 
 ### Context recording rule
-Every conversation turn must produce a `context/turn-NNN-<short-title>.md` file before the session ends. Auto-approved in `.claude/settings.local.json` (git-ignored). **Also update this snapshot file** to reflect the session's decisions and current state.
+Every conversation turn must produce a `context/archive/turn-NNN-<short-title>.md` file before the session ends. Check the highest existing number inside `context/archive/`. Auto-approved in `.claude/settings.local.json` (git-ignored). **Also update this snapshot file** to reflect the session's decisions and current state.
 
 ---
 
@@ -157,26 +157,33 @@ Every conversation turn must produce a `context/turn-NNN-<short-title>.md` file 
 | `docs/frontend-design.md` | Complete — Angular frontend design (updated to reflect 3D + pixel-texture) |
 | `docs/3d-engine-design.md` | Complete — 2 511-line 3D engine design; reviewed in turns 010–011 |
 | `CONTRIBUTING.md` | Complete — branching and workflow docs |
-| `context/turn-001` through `turn-012` | Historical turn log |
+| `context/archive/turn-001` through `turn-014` | Historical turn log (all 14 turns archived) |
+| `CLAUDE.md` | Auto-read instructions for Claude Code at session start |
+| `context/PROJECT-SNAPSHOT.md` | This file — authoritative session-start summary |
 
 ---
 
-## Current state (turn-013, 2026-05-22)
+## Current state (turn-014, 2026-05-22)
 
-- **Current branch:** `story/3d-engine-design-doc`
-- **Open PR:** `story/3d-engine-design-doc` → `develop` (opened turn-012)
-- **PR contains:** `docs/3d-engine-design.md` (new), `context/turn-006` through `turn-012` (new), `.gitignore` (updated)
-- **This turn (013):** added `CLAUDE.md` (auto-read at session start), `context/PROJECT-SNAPSHOT.md` (this file), updated `context/README.md` — these changes are uncommitted and will need to be included in the PR or a follow-up commit
+- **Current branch:** `develop` (clean, up to date with origin)
+- **No open PRs**
+- **develop history:**
+  - `d880ff1` — Consolidate session history: CLAUDE.md, PROJECT-SNAPSHOT, archive turn logs (PR #2)
+  - `f7ea3f8` — Add 3D engine design doc (PR #1)
+  - `d177d42` — initial pass with design folder and context folder
+- All design doc work is merged to develop. Three design docs are complete and on develop.
 
 ---
 
 ## What's next
 
-1. **Decide:** merge the open PR or continue doc deep-dive first (§10 ragdolls/combat is the suggested next section)
-2. **After merge:** scaffold implementation — API project, Angular client, engine package repo
-3. **At scaffolding time:** wire up Tier 1 security scanning (Dependabot alerts + version updates, CodeQL, secret scanning / push protection)
-4. **Eventually:** create standalone engine GitHub repo (`@rearles/livingland-engine`) and publish to npm
-5. **CLT update** (non-blocking): `sudo rm -rf /Library/Developer/CommandLineTools && sudo xcode-select --install`
+1. **Scaffold implementation** — the next major body of work. Three repos to set up:
+   - `@rearles/livingland-engine` — standalone npm package (its own GitHub repo)
+   - ASP.NET Core 8 API project (in this repo, likely under `api/`)
+   - Angular 17+ client project (in this repo, likely under `client/`)
+2. **Wire up Tier 1 security scanning** (Dependabot alerts + version updates, CodeQL, secret scanning / push protection) when first code files land
+3. **Create engine GitHub repo** (`@rearles/livingland-engine`) before writing engine code
+4. **CLT update** (non-blocking): `sudo rm -rf /Library/Developer/CommandLineTools && sudo xcode-select --install`
 
 ---
 
