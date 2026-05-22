@@ -12,7 +12,7 @@ That file is the authoritative summary of all decisions made, the current projec
 
 ## Context recording rule (required, every turn)
 
-At the end of every prompt/response, create a new `context/turn-NNN-<short-title>.md` file. The file numbering is monotonically increasing — check the highest existing number first. Never overwrite an earlier turn file.
+At the end of every prompt/response, create a new `context/archive/turn-NNN-<short-title>.md` file. The file numbering is monotonically increasing — check the highest existing number first inside `context/archive/`. Never overwrite an earlier turn file.
 
 Template:
 
