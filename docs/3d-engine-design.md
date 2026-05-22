@@ -914,6 +914,8 @@ export class FpArms {
 
 When `showFirstPersonHands` is false, the `FpArms` is omitted and only the weapon model is added to the camera (`weapon.position.set(0.25, -0.25, -0.5)` or similar).
 
+**Asset fallback (MVP only).** The FP hands rig assumes the chosen asset pack ships four per-weapon poses: `idle`, `swing-windup`, `swing-hit`, and `hide`. If the Kenney FPS Pack (or whichever pack we land on) does *not* ship these, MVP ships with `showFirstPersonHands: false` as the visible default and the settings toggle becomes a no-op for the slice. Authoring the four poses in Blender against a generic arm rig is a v0.2 task. This keeps MVP unblocked on asset availability.
+
 ---
 
 ## 10. Combat — Pipe Melee + Ragdoll Death
@@ -1011,7 +1013,7 @@ takeDamage(amount: number, fromDirection: Vector3) {
 
 ### 10.4 Ragdoll death
 
-On death, we **replace** the animated character with a Rapier-driven ragdoll: a small set of capsule bodies for torso/upper-arms/lower-arms/upper-legs/lower-legs joined by spherical joints. We pre-build the ragdoll skeleton once per enemy archetype and reuse the configuration.
+On death, we **replace** the animated character with a Rapier-driven ragdoll: a small set of capsule bodies joined by spherical joints. Each enemy archetype gets its **own** ragdoll config so deaths feel distinct (a Mini Zombie should crumple differently from a Pipe Zombie, which crumples differently from a Sweeper). The configs share a single `RagdollConfig` type.
 
 ```typescript
 // actors/enemies/ragdoll.ts
@@ -1022,9 +1024,10 @@ export interface RagdollConfig {
   joints: { parent: string; child: string; anchorParent: Vec3; anchorChild: Vec3 }[]
 }
 
-export const HUMANOID_RAGDOLL: RagdollConfig = {
+// Pipe Zombie — adult humanoid. 9 bones (torso + segmented arms + segmented legs).
+export const PIPE_ZOMBIE_RAGDOLL: RagdollConfig = {
   bones: [
-    { name: 'torso',   halfHeight: 0.30, radius: 0.18, localOffset: { x: 0, y: 0.9, z: 0 } },
+    { name: 'torso',   halfHeight: 0.30, radius: 0.18, localOffset: { x: 0,     y: 0.90, z: 0 } },
     { name: 'lUpArm',  halfHeight: 0.14, radius: 0.07, localOffset: { x: -0.25, y: 1.15, z: 0 } },
     { name: 'lLoArm',  halfHeight: 0.14, radius: 0.06, localOffset: { x: -0.45, y: 1.05, z: 0 } },
     { name: 'rUpArm',  halfHeight: 0.14, radius: 0.07, localOffset: { x:  0.25, y: 1.15, z: 0 } },
@@ -1035,15 +1038,71 @@ export const HUMANOID_RAGDOLL: RagdollConfig = {
     { name: 'rLoLeg',  halfHeight: 0.20, radius: 0.07, localOffset: { x:  0.10, y: 0.10, z: 0 } },
   ],
   joints: [
-    { parent: 'torso',  child: 'lUpArm', anchorParent: { x: -0.18, y: 0.25, z: 0 }, anchorChild: { x: 0, y:  0.14, z: 0 } },
-    { parent: 'lUpArm', child: 'lLoArm', anchorParent: { x: 0, y: -0.14, z: 0 },    anchorChild: { x: 0, y:  0.14, z: 0 } },
-    { parent: 'torso',  child: 'rUpArm', anchorParent: { x:  0.18, y: 0.25, z: 0 }, anchorChild: { x: 0, y:  0.14, z: 0 } },
-    { parent: 'rUpArm', child: 'rLoArm', anchorParent: { x: 0, y: -0.14, z: 0 },    anchorChild: { x: 0, y:  0.14, z: 0 } },
+    { parent: 'torso',  child: 'lUpArm', anchorParent: { x: -0.18, y:  0.25, z: 0 }, anchorChild: { x: 0, y:  0.14, z: 0 } },
+    { parent: 'lUpArm', child: 'lLoArm', anchorParent: { x: 0,     y: -0.14, z: 0 }, anchorChild: { x: 0, y:  0.14, z: 0 } },
+    { parent: 'torso',  child: 'rUpArm', anchorParent: { x:  0.18, y:  0.25, z: 0 }, anchorChild: { x: 0, y:  0.14, z: 0 } },
+    { parent: 'rUpArm', child: 'rLoArm', anchorParent: { x: 0,     y: -0.14, z: 0 }, anchorChild: { x: 0, y:  0.14, z: 0 } },
     { parent: 'torso',  child: 'lUpLeg', anchorParent: { x: -0.10, y: -0.30, z: 0 }, anchorChild: { x: 0, y:  0.20, z: 0 } },
-    { parent: 'lUpLeg', child: 'lLoLeg', anchorParent: { x: 0, y: -0.20, z: 0 },     anchorChild: { x: 0, y:  0.20, z: 0 } },
+    { parent: 'lUpLeg', child: 'lLoLeg', anchorParent: { x: 0,     y: -0.20, z: 0 }, anchorChild: { x: 0, y:  0.20, z: 0 } },
     { parent: 'torso',  child: 'rUpLeg', anchorParent: { x:  0.10, y: -0.30, z: 0 }, anchorChild: { x: 0, y:  0.20, z: 0 } },
-    { parent: 'rUpLeg', child: 'rLoLeg', anchorParent: { x: 0, y: -0.20, z: 0 },     anchorChild: { x: 0, y:  0.20, z: 0 } },
+    { parent: 'rUpLeg', child: 'rLoLeg', anchorParent: { x: 0,     y: -0.20, z: 0 }, anchorChild: { x: 0, y:  0.20, z: 0 } },
   ],
+}
+
+// Mini Zombie — short, light, simpler 5-bone skeleton (single-segment limbs).
+// Tumbles fast and floppy; doesn't fold at elbows/knees.
+export const MINI_ZOMBIE_RAGDOLL: RagdollConfig = {
+  bones: [
+    { name: 'torso', halfHeight: 0.18, radius: 0.12, localOffset: { x: 0,     y: 0.55, z: 0 } },
+    { name: 'lArm',  halfHeight: 0.18, radius: 0.05, localOffset: { x: -0.20, y: 0.65, z: 0 } },
+    { name: 'rArm',  halfHeight: 0.18, radius: 0.05, localOffset: { x:  0.20, y: 0.65, z: 0 } },
+    { name: 'lLeg',  halfHeight: 0.22, radius: 0.06, localOffset: { x: -0.08, y: 0.22, z: 0 } },
+    { name: 'rLeg',  halfHeight: 0.22, radius: 0.06, localOffset: { x:  0.08, y: 0.22, z: 0 } },
+  ],
+  joints: [
+    { parent: 'torso', child: 'lArm', anchorParent: { x: -0.12, y:  0.15, z: 0 }, anchorChild: { x: 0, y:  0.18, z: 0 } },
+    { parent: 'torso', child: 'rArm', anchorParent: { x:  0.12, y:  0.15, z: 0 }, anchorChild: { x: 0, y:  0.18, z: 0 } },
+    { parent: 'torso', child: 'lLeg', anchorParent: { x: -0.08, y: -0.18, z: 0 }, anchorChild: { x: 0, y:  0.22, z: 0 } },
+    { parent: 'torso', child: 'rLeg', anchorParent: { x:  0.08, y: -0.18, z: 0 }, anchorChild: { x: 0, y:  0.22, z: 0 } },
+  ],
+}
+
+// Sweeper — bulky humanoid + separate neck + head. 11 bones. Heavier radii give it
+// presence; the loose head joint sells the "thing collapsing" silhouette on death.
+// (The Sweeper is invincible during gameplay; this config only kicks in if the run
+// ends and we want a cinematic death — e.g. a future "destroy the mothership" beat.)
+export const SWEEPER_RAGDOLL: RagdollConfig = {
+  bones: [
+    { name: 'head',    halfHeight: 0.10, radius: 0.16, localOffset: { x: 0,     y: 2.10, z: 0 } },
+    { name: 'neck',    halfHeight: 0.06, radius: 0.10, localOffset: { x: 0,     y: 1.85, z: 0 } },
+    { name: 'torso',   halfHeight: 0.42, radius: 0.28, localOffset: { x: 0,     y: 1.30, z: 0 } },
+    { name: 'lUpArm',  halfHeight: 0.20, radius: 0.11, localOffset: { x: -0.38, y: 1.65, z: 0 } },
+    { name: 'lLoArm',  halfHeight: 0.20, radius: 0.10, localOffset: { x: -0.65, y: 1.40, z: 0 } },
+    { name: 'rUpArm',  halfHeight: 0.20, radius: 0.11, localOffset: { x:  0.38, y: 1.65, z: 0 } },
+    { name: 'rLoArm',  halfHeight: 0.20, radius: 0.10, localOffset: { x:  0.65, y: 1.40, z: 0 } },
+    { name: 'lUpLeg',  halfHeight: 0.30, radius: 0.14, localOffset: { x: -0.15, y: 0.65, z: 0 } },
+    { name: 'lLoLeg',  halfHeight: 0.30, radius: 0.11, localOffset: { x: -0.15, y: 0.15, z: 0 } },
+    { name: 'rUpLeg',  halfHeight: 0.30, radius: 0.14, localOffset: { x:  0.15, y: 0.65, z: 0 } },
+    { name: 'rLoLeg',  halfHeight: 0.30, radius: 0.11, localOffset: { x:  0.15, y: 0.15, z: 0 } },
+  ],
+  joints: [
+    { parent: 'neck',   child: 'head',   anchorParent: { x: 0,    y:  0.06, z: 0 }, anchorChild: { x: 0, y: -0.10, z: 0 } },
+    { parent: 'torso',  child: 'neck',   anchorParent: { x: 0,    y:  0.40, z: 0 }, anchorChild: { x: 0, y: -0.06, z: 0 } },
+    { parent: 'torso',  child: 'lUpArm', anchorParent: { x: -0.28, y:  0.35, z: 0 }, anchorChild: { x: 0, y:  0.20, z: 0 } },
+    { parent: 'lUpArm', child: 'lLoArm', anchorParent: { x: 0,     y: -0.20, z: 0 }, anchorChild: { x: 0, y:  0.20, z: 0 } },
+    { parent: 'torso',  child: 'rUpArm', anchorParent: { x:  0.28, y:  0.35, z: 0 }, anchorChild: { x: 0, y:  0.20, z: 0 } },
+    { parent: 'rUpArm', child: 'rLoArm', anchorParent: { x: 0,     y: -0.20, z: 0 }, anchorChild: { x: 0, y:  0.20, z: 0 } },
+    { parent: 'torso',  child: 'lUpLeg', anchorParent: { x: -0.15, y: -0.42, z: 0 }, anchorChild: { x: 0, y:  0.30, z: 0 } },
+    { parent: 'lUpLeg', child: 'lLoLeg', anchorParent: { x: 0,     y: -0.30, z: 0 }, anchorChild: { x: 0, y:  0.30, z: 0 } },
+    { parent: 'torso',  child: 'rUpLeg', anchorParent: { x:  0.15, y: -0.42, z: 0 }, anchorChild: { x: 0, y:  0.30, z: 0 } },
+    { parent: 'rUpLeg', child: 'rLoLeg', anchorParent: { x: 0,     y: -0.30, z: 0 }, anchorChild: { x: 0, y:  0.30, z: 0 } },
+  ],
+}
+
+export const RAGDOLLS_BY_KIND: Record<string, RagdollConfig> = {
+  'pipe-zombie': PIPE_ZOMBIE_RAGDOLL,
+  'mini-zombie': MINI_ZOMBIE_RAGDOLL,
+  'sweeper-zombie': SWEEPER_RAGDOLL,
 }
 
 export function spawnRagdoll(
@@ -1056,6 +1115,8 @@ export function spawnRagdoll(
 ```
 
 Ragdolls are tagged with a `ttl` and despawned after `T.RAGDOLL_TTL_S` (default 8 s) to bound on-screen body counts. On despawn we play a "sink" tween that fades them through the floor.
+
+The `Enemy.die()` method picks the config from `RAGDOLLS_BY_KIND[this.cfg.kind]` so enemy classes don't need to know about ragdoll shapes — they just declare their `kind` and the right ragdoll wakes up.
 
 ### 10.5 Player damage feedback
 
@@ -1326,7 +1387,7 @@ export class SweeperZombie extends Enemy {
 
 The Sweeper is **not present at the start of the run**. It's spawned by the timer service (§17) when the hidden countdown hits zero. On spawn:
 
-1. The dungeon picks the room **farthest from the player** by graph distance.
+1. The dungeon picks the room **farthest from the player**, measured by BFS over the room edge graph **and** filtered to require at least `T.SWEEPER_MIN_WORLD_DIST_M` (8 m) of straight-line distance from the player. If no room satisfies both criteria, fall back to the pure-BFS winner. This avoids the failure mode where a branchy procgen layout's "graph-farthest" room is physically right next to the player.
 2. A `SweeperReleased` event is emitted to the HUD.
 3. An ominous one-shot (`sweeperRoar`) plays from the spawn position (the player hears it directional).
 4. The looping footsteps sfx is mounted and its gain ramps up with proximity.
@@ -1553,15 +1614,19 @@ export class Dungeon {
     return this.graph.rooms[this.graph.rootIndex]
   }
 
-  farthestRoomFrom(p: Vector3): RoomInstance {
+  farthestRoomFrom(p: Vector3, minWorldDist = T.SWEEPER_MIN_WORLD_DIST_M): RoomInstance {
     const here = this.roomContainingPoint(p)
-    // BFS by edges
     const dists = bfsRoomDistances(this.graph, here.index)
-    let best = here.index, bestDist = 0
+    let best = here.index,         bestBfs = 0       // best room that ALSO clears the world-dist floor
+    let fallback = here.index,     fallbackBfs = 0   // best room by BFS only, ignoring world distance
     for (let i = 0; i < dists.length; i++) {
-      if (dists[i] > bestDist) { best = i; bestDist = dists[i] }
+      if (dists[i] > fallbackBfs) { fallback = i; fallbackBfs = dists[i] }
+      const worldDist = p.distanceTo(this.graph.rooms[i].center as any)
+      if (worldDist < minWorldDist) continue
+      if (dists[i] > bestBfs) { best = i; bestBfs = dists[i] }
     }
-    return this.graph.rooms[best]
+    // If no room cleared the world-distance floor, fall back to pure BFS so we still spawn somewhere.
+    return this.graph.rooms[bestBfs > 0 ? best : fallback]
   }
 }
 ```
@@ -1805,13 +1870,20 @@ export class AudioService {
 
 The dungeon countdown is **hidden** by design (per PDF). The HUD never shows a timer. Players learn the time-of-day from in-room clocks (and at run start, from Jay's daily briefing — owned by the Angular shell).
 
+The countdown value is **per-day, API-driven**: the C# API returns `sweeperReleaseSeconds` on the `RunDescriptor` based on Jay's morning briefing. The engine respects whatever the API hands it; it only falls back to `T.SWEEPER_RELEASE_DEFAULT_S` (90 s) if the API omits the field (e.g. local dev without the API).
+
 ```typescript
 // engine/TimerService.ts
 import { releaseSweeper } from './sweeper-release'
+import { tuning as T } from '../tuning'
 
 export class TimerService {
-  private remaining = T.SWEEPER_RELEASE_S      // default 90 s
+  private remaining: number
   private released = false
+
+  constructor(initialRemainingSeconds: number = T.SWEEPER_RELEASE_DEFAULT_S) {
+    this.remaining = initialRemainingSeconds
+  }
 
   tick(dt: number, engine: GameEngine): void {
     if (this.released) return
@@ -1829,7 +1901,7 @@ export class TimerService {
 }
 ```
 
-The `T.SWEEPER_RELEASE_S` is exposed on the `RunDescriptor` so the API can override per-day (the PDF mentions Jay tells the player when the Sweeper is released each morning).
+`GameEngine.loadRun(...)` constructs the `TimerService` with `new TimerService(run.sweeperReleaseSeconds ?? T.SWEEPER_RELEASE_DEFAULT_S)`. This keeps the PDF's "each day is different" flavor while letting MVP dev run without a live API.
 
 ---
 
@@ -1877,7 +1949,18 @@ ngAfterViewInit() {
 
 ### 18.3 Pause semantics
 
-`engine.pause()` freezes the tick (no physics step, no actor updates, music continues at -6 dB). `engine.resume()` resumes. The Angular shell shows the pause modal on top of the canvas. The pointer-lock is released on pause and re-acquired on resume.
+`engine.pause()` freezes the tick (no physics step, no actor updates). The Angular shell shows the pause modal on top of the canvas. The pointer-lock is released on pause and re-acquired on resume. `engine.resume()` reverses everything.
+
+**Audio policy on pause** (tuned for horror tension):
+
+| Audio class                | On pause                                                  |
+| -------------------------- | --------------------------------------------------------- |
+| Music                      | Duck to -6 dB; keep playing                               |
+| Sweeper proximity loop     | Duck to **30 %** of current gain; keep playing            |
+| All other spatial sfx loops | Mute (fade out over 100 ms)                              |
+| One-shots in flight        | Allowed to finish; new one-shots blocked                  |
+
+The Sweeper loop staying audible is intentional: the pause modal is not a safe zone. The player still feels the thing closing in, which prevents pause-camping when it's nearby.
 
 ### 18.4 Cleanup contract
 
@@ -1927,11 +2010,12 @@ export const PIPE_SWING_HIT_FRAME_S = 0.18       // hit detection fires 0.18 s i
 export const PIPE_REACH_M = 1.6                  // length of the swing arc + arm
 export const PIPE_HIT_RADIUS_M = 0.25            // capsule cast radius — forgiving on near-misses
 export const PIPE_DURABILITY = 20                // per PDF (Pipe has 20 health)
-export const PIPE_DURABILITY_LOSS_PER_HIT = 1    // PDF says "Each swing of the Pipe takes two health off"
-                                                 // but the section also says "two health off of the item"
-                                                 // which we read as 2 — confirm with Ryan; using 1 to feel
-                                                 // less punishing in MVP.
-//  → swings until break = PIPE_DURABILITY / PIPE_DURABILITY_LOSS_PER_HIT = 20
+//  → durability_loss_per_hit is DATA-DRIVEN: the value comes from the Item record returned
+//    by the API. MVP default below is used only if the Item record doesn't specify.
+//    PDF text reads "two health off"; we default to 1 in MVP for less-punishing playtesting,
+//    and let designers move it to 2 via the API without code changes.
+export const PIPE_DURABILITY_LOSS_PER_HIT_DEFAULT = 1
+//  → swings until break (at default) = PIPE_DURABILITY / 1 = 20
 
 /* ─────────────  Hit feedback  ───────────── */
 export const HIT_FLASH_S = 0.08                  // 80 ms red tint on enemies
@@ -1966,8 +2050,13 @@ export const SWEEPER_DMG = 5                     // ~25% of base HP per hit — 
 export const SWEEPER_SPEED = 4.0                 // slower than mini, faster than pipe
 export const SWEEPER_REACH = 1.5
 export const SWEEPER_ATTACK_CYCLE = 1.0
-export const SWEEPER_RELEASE_S = 90              // 90 s after run start (PDF doesn't specify exact)
+export const SWEEPER_RELEASE_DEFAULT_S = 90      // FALLBACK only. Per-day value is provided by the
+                                                 // API via RunDescriptor.sweeperReleaseSeconds, per Jay's
+                                                 // morning briefing (PDF). MVP default if API omits it.
 export const SWEEPER_PROX_LOUD_RANGE = 12        // m — proximity loop hits max gain at distance 0
+export const SWEEPER_MIN_WORLD_DIST_M = 8        // Sweeper spawn must be at least this far from the
+                                                 // player in straight-line world distance, in addition
+                                                 // to being the BFS-farthest room. See §12.2 / §14.5.
 
 /* ─────────────  Procgen  ───────────── */
 export const MIN_ROOMS = 5
@@ -2323,13 +2412,15 @@ A run is "MVP-acceptable" when:
 
 ---
 
-## 24. Open Questions
+## 24. Resolved Decisions
 
-1. **Pipe durability per hit** — PDF says "Each swing of the Pipe takes two health off." Read literally that's 2 durability per swing → 10 swings before break, which feels rough. Tuning uses 1 per swing for MVP feel (20 swings). Confirm.
-2. **Sweeper release timing** — PDF mentions Jay tells the player each morning when the Sweeper releases, but doesn't pin a number. Tuning uses 90 s for MVP. Acceptable as a default, with the API able to override per-day later?
-3. **Ragdoll asset rigging** — Quaternius zombies ship with skinned meshes but no ragdoll constraint metadata. The doc assumes we hand-build the constraint config (`HUMANOID_RAGDOLL`) once and re-use across enemy archetypes. Confirm this is acceptable, vs. hoping for ragdoll-ready packs.
-4. **Pause behavior under Sweeper proximity** — when the player pauses while the Sweeper is closing, should the proximity audio mute, duck, or freeze? Proposed: duck to 30% (so the player still feels its presence). Confirm.
-5. **Mid-run save** — confirmed off per PDF spirit. Verify before implementation.
-6. **Stamina UX** — should the stamina bar always be visible, or only when the player is sprinting / sub-50%? Proposed: always visible per the HUD sketch on PDF page 6 — but consider hiding above 50% for cleanliness.
-7. **First-person hands asset** — Kenney "FPS Pack" is endorsed; if it doesn't ship with the per-weapon poses we need (pipe grip, idle, swing, hide), we may need to author them in Blender. Acceptable fallback: weapon-only mode until hands are authored.
-8. **Sweeper room "graph distance"** — we currently use BFS over the dungeon edge graph to find the farthest room. If a branchy dungeon ends up with the farthest room being adjacent to the player on one edge, the Sweeper spawns "close" relative to the player's intuition. Confirm this is OK; otherwise we could enforce minimum Euclidean distance too.
+The questions that surfaced during drafting were resolved in review with Ryan on 2026-05-22. Each entry notes the decision and where it is implemented in the doc.
+
+1. **Pipe durability per hit** — *Data-driven, default 1, API can override.* The `Item` record returned by the API carries the per-weapon `durability_loss_per_hit` value. The Pipe class reads it at construction time; `T.PIPE_DURABILITY_LOSS_PER_HIT_DEFAULT` (1) is only used if the API omits it. Implemented in §10.2 (Pipe class) and §19 (tuning).
+2. **Sweeper release timing** — *Per-day, API-driven.* `RunDescriptor.sweeperReleaseSeconds` from the API is the source of truth; `T.SWEEPER_RELEASE_DEFAULT_S` (90 s) is the fallback if the API omits the field. Implemented in §17 (TimerService constructor) and §19 (tuning).
+3. **Ragdoll constraint configuration** — *Per-enemy configs.* `PIPE_ZOMBIE_RAGDOLL` (9 bones, segmented limbs), `MINI_ZOMBIE_RAGDOLL` (5 bones, single-segment limbs), `SWEEPER_RAGDOLL` (11 bones, head + neck + bulkier radii). Looked up at death time via `RAGDOLLS_BY_KIND[kind]`. Implemented in §10.4.
+4. **Pause behavior under Sweeper proximity** — *Duck the Sweeper loop to 30 %, mute all other spatial sfx loops, keep music at -6 dB.* The Sweeper loop staying audible is intentional — pause is not a safe zone. Implemented in §18.3.
+5. **Mid-run save** — *Confirmed off.* Per PDF spirit, a run is a single push. Closing the tab forfeits the run after the API's 15-minute heartbeat timeout. Implemented in §1.3 (non-goals).
+6. **Stamina UX** — *Always visible on the HUD.* Matches the PDF's HUD sketch (page 6). No fade or context-aware hiding for MVP. Implemented in the frontend doc's HUD components.
+7. **First-person hands asset fallback** — *MVP ships with weapon-only if the asset pack doesn't provide the four per-weapon poses (`idle`, `swing-windup`, `swing-hit`, `hide`).* Settings toggle becomes a no-op for MVP in that case; authoring the poses in Blender is a v0.2 task. Implemented in §9.4.
+8. **Sweeper spawn metric** — *BFS-farthest AND at least 8 m world-space distance from the player.* If no room clears both, fall back to pure BFS so the Sweeper still spawns somewhere. Implemented in §12.2 and §14.5; `T.SWEEPER_MIN_WORLD_DIST_M` in §19.
