@@ -6,10 +6,12 @@ Per-turn record of the design conversation between Ryan (the project owner) and 
 
 ```
 context/
-├── README.md          # this file
-├── turn-001-*.md      # earliest turn
-├── turn-002-*.md
-└── turn-NNN-*.md      # most recent turn
+├── README.md              # this file
+├── PROJECT-SNAPSHOT.md    # authoritative session-start summary (read this first)
+└── archive/               # historical per-turn log files
+    ├── turn-001-*.md      # earliest turn
+    ├── turn-002-*.md
+    └── turn-NNN-*.md      # most recent turn
 ```
 
 Each turn file follows this template:
@@ -33,8 +35,8 @@ Each turn file follows this template:
 
 ## How Claude Code should use this folder
 
-- **At the start of a new session**, read the highest-numbered turn file (and a few before it if context is missing) to recover where the project is.
-- **At the end of every turn**, append a new turn file. Check the highest existing number first; do not overwrite earlier turns.
+- **At the start of a new session**, read `PROJECT-SNAPSHOT.md` — it is the condensed, always-current summary of the entire project. Only read individual turn files if you need the detailed history behind a specific decision.
+- **At the end of every turn**, append a new turn file. Check the highest existing number first; do not overwrite earlier turns. Also update `PROJECT-SNAPSHOT.md` if decisions, completed work, or current state changed this turn.
 - Keep the files focused on *decisions and actions*, not transcript dumps. The PDF and the `docs/` folder are the source of truth for the game design; these files are the source of truth for the *meta* (what we agreed to, what we tried, what's deferred).
 
 ## Related
